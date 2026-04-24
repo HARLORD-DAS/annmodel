@@ -1,0 +1,125 @@
+# ============================================================
+#  Stroke ANN Project — Central Configuration
+#  MSc Biotechnology / Bioinformatics
+# ============================================================
+
+project:
+  name: "ANN Stroke Severity Prediction"
+  version: "1.0.0"
+  seed: 42
+
+# ---------- Paths ----------
+paths:
+  raw_data:       "data/raw/"
+  processed_data: "data/processed/"
+  splits_dir:     "data/splits/"
+  checkpoints:    "checkpoints/"
+  logs:           "logs/"
+  outputs:        "outputs/"
+
+# ---------- Dataset ----------
+dataset:
+  name: "ISLES2022"          # Options: ISLES2022, ATLAS2
+  mri_modalities:
+    - "DWI"                  # Diffusion Weighted Imaging  ← primary infarct marker
+    - "ADC"                  # Apparent Diffusion Coefficient
+    - "FLAIR"                # Fluid Attenuated Inversion Recovery
+  clinical_features:
+    - "age"
+    - "nihss_baseline"       # NIH Stroke Scale at admission
+    - "onset_to_door_hours"  # Time from symptom onset to hospital
+    - "hypertension"         # Binary
+    - "diabetes"             # Binary
+    - "atrial_fibrillation"  # Binary
+    - "prior_stroke"         # Binary
+    - "gender"               # Binary (0=F, 1=M)
+    - "systolic_bp"          # Systolic blood pressure
+    - "glucose_admission"    # Blood glucose at admission
+  target_severity:           # Classification target
+    classes: ["mild", "moderate", "severe"]
+    nihss_thresholds: [7, 15] # mild<7, moderate 7-15, severe>15
+  target_progression:        # Regression target
+    column: "nihss_day90"    # NIHSS at 90 days post-stroke
+
+# ---------- Preprocessing ----------
+preprocessing:
+  mri:
+    target_shape: [64, 64, 32]   # Resample all volumes to this (H, W, D)
+    intensity_norm: "z_score"    # Options: z_score | min_max | percentile
+    skull_strip: false           # Set true if using raw MRI (ISLES already stripped)
+    apply_brain_mask: true
+  clinical:
+    imputation: "median"         # Options: median | mean | knn
+    scaling: "standard"          # Options: standard | minmax | robust
+  radiomics:
+    extract: true
+    features:
+      - "lesion_volume_ml"
+      - "adc_mean_lesion"
+      - "adc_min_lesion"
+      - "dwi_mean_lesion"
+      - "penumbra_ratio"
+      - "lesion_location_encoded"   # Frontal/temporal/parietal/etc.
+  splits:
+    train: 0.70
+    val:   0.15
+    test:  0.15
+    stratify: true
+
+# ---------- Model Architecture ----------
+model:
+  mri_branch:
+    input_dim: 64             # Flattened or CNN-extracted features
+    layers: [256, 128]
+    dropout: 0.3
+    activation: "relu"
+    batch_norm: true
+  clinical_branch:
+    input_dim: null           # Auto-computed from feature count
+    layers: [64, 32]
+    dropout: 0.25
+    activation: "relu"
+    batch_norm: true
+  fusion:
+    layers: [128, 64]
+    dropout: 0.3
+  output:
+    severity_head:
+      type: "classification"
+      units: 3
+      activation: "softmax"
+    progression_head:
+      type: "regression"
+      units: 1
+      activation: "linear"
+
+# ---------- Training ----------
+training:
+  epochs: 150
+  batch_size: 32
+  optimizer: "adam"
+  learning_rate: 0.001
+  lr_schedule: "reduce_on_plateau"
+  early_stopping_patience: 20
+  class_weights: true         # Handle class imbalance
+  loss:
+    severity: "categorical_crossentropy"
+    progression: "mean_squared_error"
+  loss_weights:
+    severity: 1.0
+    progression: 0.5
+
+# ---------- Evaluation ----------
+evaluation:
+  metrics:
+    classification: ["accuracy", "auc_roc", "f1_macro", "precision", "recall"]
+    regression: ["mae", "rmse", "r2"]
+  explainability:
+    shap: true
+    gradcam: true
+    feature_importance: true
+  baselines:
+    - "logistic_regression"
+    - "random_forest"
+    - "svm"
+    - "gradient_boosting"
